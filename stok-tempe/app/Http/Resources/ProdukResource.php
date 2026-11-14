@@ -12,18 +12,10 @@ class ProdukResource extends JsonResource
         return [
             'kode_produk' => $this->kode_produk,
             'nama_produk' => $this->nama_produk,
-            'kategori' => [
-                'id' => $this->kategori?->id,
-                'nama' => $this->kategori?->nama_kategori,
-                'daya_tahan_hari' => $this->kategori?->daya_tahan_hari,
-            ],
-            'satuan' => $this->satuan,
+            'jenis_produk' => $this->jenis_produk,
             'harga_satuan' => $this->harga_satuan,
-            'jumlah_stok' => $this->jumlah_stok,
-            'stok_minimum' => $this->stok_minimum,
-            'status_stok' => $this->statusStok,
-            'status' => $this->status,
-            'terakhir_diperbarui' => $this->terakhir_diperbarui?->toISOString(),
+            'stok_gudang' => $this->stok_gudang,
+            'tersedia' => $this->tersedia,
         ];
     }
 }

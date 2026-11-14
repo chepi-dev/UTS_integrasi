@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Produk extends Model
 {
@@ -16,42 +17,24 @@ class Produk extends Model
 
     protected $fillable = [
         'kode_produk',
-        'kategori_id',
         'nama_produk',
-        'satuan',
+        'jenis_produk',
         'harga_satuan',
-        'jumlah_stok',
-        'stok_minimum',
-        'status',
-        'terakhir_diperbarui',
+        'stok_gudang',
     ];
 
     protected $casts = [
         'harga_satuan' => 'integer',
-        'jumlah_stok' => 'integer',
-        'stok_minimum' => 'integer',
-        'terakhir_diperbarui' => 'datetime',
+        'stok_gudang' => 'integer',
     ];
 
-    public function kategori()
+    public function getTersediaAttribute(): bool
     {
-        return $this->belongsTo(KategoriProduk::class, 'kategori_id');
+        return $this->stok_gudang > 0;
     }
 
-    public function batches()
+    public function detailKonsinyasi(): HasMany
     {
-        return $this->hasMany(BatchStok::class, 'kode_produk');
-    }
-
-    public function riwayat()
-    {
-        return $this->hasMany(RiwayatStok::class, 'kode_produk');
-    }
-
-    public function getStatusStokAttribute(): string
-    {
-        if ($this->jumlah_stok == 0) return 'habis';
-        if ($this->jumlah_stok <= $this->stok_minimum) return 'kritis';
-        return 'aman';
+        return $this->hasMany(DetailKonsinyasi::class, 'kode_produk', 'kode_produk');
     }
 }
