@@ -1,22 +1,30 @@
 openapi: 3.1.0
 info:
-  title: Layanan Manajemen Stok Tahu Tempe
-  version: 1.0.0
-  description: REST API manajemen produk dan stok tahu/tempe untuk usaha keluarga (Kelompok Anti-Normal)
+  title: Layanan Manajemen Stok & Konsinyasi Tahu Tempe
+  version: 2.0.0
+  description: >
+    REST API design-first untuk pengelolaan stok gudang pabrik tahu/tempe dan siklus
+    distribusi konsinyasi harian (pengambilan pagi dan rekonsiliasi setoran sore).
   contact:
-    name: Kelompok Anti-Normal
-    email: kelompok.antinormal@example.com
+    name: Kelompok Anti-Normal - Integrasi Cloud
 servers:
   - url: http://localhost:8000/api/v1
-    description: Server lokal development
+    description: Server Pengembangan Lokal (Laravel Sail)
+
+tags:
+  - name: Produk
+    description: Manajemen katalog produk tahu/tempe dan pencatatan hasil produksi gudang
+  - name: Pedagang
+    description: Manajemen mitra pedagang keliling dan warung
+  - name: Konsinyasi
+    description: Siklus manifest pengambilan pagi dan rekonsiliasi setoran sore
+
 paths:
   /produk:
     get:
+      tags: [Produk]
+      summary: Daftar semua produk dan stok gudang
       operationId: listProduk
-      summary: Daftar semua produk tahu dan tempe
-      description: Mengembalikan daftar lengkap semua produk tahu dan tempe yang tersedia dalam stok.
-      tags:
-        - Produk
       responses:
         '200':
           description: Daftar produk berhasil diambil
@@ -27,11 +35,9 @@ paths:
                 items:
                   $ref: '#/components/schemas/Produk'
     post:
-      operationId: tambahProduk
-      summary: Menambahkan produk baru ke dalam stok
-      description: Mengembalikan daftar lengkap semua produk tahu dan tempe yang tersedia dalam stok.
-      tags:
-        - Produk
+      tags: [Produk]
+      summary: Tambah jenis produk tahu/tempe baru
+      operationId: createProduk
       requestBody:
         required: true
         content:
@@ -40,84 +46,191 @@ paths:
               $ref: '#/components/schemas/ProdukInput'
       responses:
         '201':
-          description: Produk berhasil dibuat
+          description: Produk baru berhasil ditambahkan
           headers:
             Location:
+              description: URI detail produk yang baru dibuat
               schema:
                 type: string
-              description: URL lokasi produk yang baru dibuat
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Produk'
         '422':
-          $ref: '#/components/responses/Unprocessable'
-  /produk/{kode_produk}:
-    get:
-      operationId: detailProduk
-      summary: Menampilkan detail satu produk berdasarkan kode produk
-      description: Mengembalikan daftar lengkap semua produk tahu dan tempe yang tersedia dalam stok.
-      tags:
-        - Produk
-      parameters:
-        - name: kode_produk
-          in: path
-          required: true
-          schema:
-            type: string
-          example: TAHU-001
-      responses:
-        '200':
-          description: Detail produk
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Produk'
-        '404':
-          $ref: '#/components/responses/NotFound'
-  /produk/{kode_produk}/penyesuaian-stok:
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /produk/{kode_produk}/produksi:
     post:
-      operationId: sesuaikanStok
-      summary: Menyesuaikan stok produk (penjualan, restok, koreksi)
-      description: Mengembalikan daftar lengkap semua produk tahu dan tempe yang tersedia dalam stok.
-      tags:
-        - Stok
+      tags: [Produk]
+      summary: Catat hasil produksi harian masuk ke stok gudang
+      operationId: tambahProduksi
       parameters:
         - name: kode_produk
           in: path
           required: true
           schema:
             type: string
-          example: TAHU-001
+            example: TAHU-001
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/StokInput'
+              $ref: '#/components/schemas/ProduksiInput'
       responses:
         '200':
-          description: Stok berhasil diperbarui
+          description: Stok gudang berhasil diperbarui dari hasil produksi
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Produk'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /pedagang:
+    get:
+      tags: [Pedagang]
+      summary: Daftar semua mitra pedagang keliling
+      operationId: listPedagang
+      responses:
+        '200':
+          description: Daftar pedagang berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pedagang'
+    post:
+      tags: [Pedagang]
+      summary: Daftarkan mitra pedagang baru
+      operationId: createPedagang
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PedagangInput'
+      responses:
+        '201':
+          description: Pedagang berhasil didaftarkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pedagang'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /konsinyasi:
+    get:
+      tags: [Konsinyasi]
+      summary: Monitoring daftar manifest konsinyasi
+      operationId: listKonsinyasi
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter berdasarkan status manifest
+          schema:
+            type: string
+            enum: [BERJALAN, SELESAI]
+      responses:
+        '200':
+          description: Daftar manifest konsinyasi berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ManifestKonsinyasi'
+    post:
+      tags: [Konsinyasi]
+      summary: Pengambilan pagi - Buat manifest konsinyasi baru (BR-01, BR-03, BR-04)
+      operationId: ambilKonsinyasiPagi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmbilKonsinyasiInput'
+      responses:
+        '201':
+          description: Manifest konsinyasi pagi berhasil dibuat dan stok gudang dipotong
+          headers:
+            Location:
+              description: URI detail manifest konsinyasi
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestKonsinyasi'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
-          $ref: '#/components/responses/Unprocessable'
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /konsinyasi/{kode_manifest}/setoran:
+    post:
+      tags: [Konsinyasi]
+      summary: Setoran sore - Rekonsiliasi barang terjual, retur layak, dan rusak (BR-02, BR-05)
+      operationId: setorKonsinyasiSore
+      parameters:
+        - name: kode_manifest
+          in: path
+          required: true
+          schema:
+            type: string
+            example: KSY-20261115-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetoranKonsinyasiInput'
+      responses:
+        '200':
+          description: Rekonsiliasi setoran sore berhasil diselesaikan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestKonsinyasi'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
 components:
+  responses:
+    NotFound:
+      description: Resource tidak ditemukan
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Pelanggaran aturan bisnis (stok kurang, manifest ganda, atau sudah selesai)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: Validasi input gagal atau hitungan rekonsiliasi tidak seimbang
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
   schemas:
     Produk:
       type: object
-      required:
-        - kode_produk
-        - nama_produk
-        - jenis_produk
-        - harga_satuan
-        - jumlah_stok
+      required: [kode_produk, nama_produk, jenis_produk, harga_satuan, stok_gudang, tersedia]
       properties:
         kode_produk:
           type: string
@@ -128,27 +241,21 @@ components:
         jenis_produk:
           type: string
           enum: [tahu, tempe]
-          example: tahu
         harga_satuan:
           type: integer
-          example: 5000
-        jumlah_stok:
+          minimum: 0
+          example: 4000
+        stok_gudang:
           type: integer
+          minimum: 0
           example: 100
-        terakhir_diperbarui:
-          type: string
-          format: date-time
-          example: "2026-10-25T10:00:00Z"
         tersedia:
           type: boolean
           example: true
+
     ProdukInput:
       type: object
-      required:
-        - nama_produk
-        - jenis_produk
-        - harga_satuan
-        - stok_awal
+      required: [nama_produk, jenis_produk, harga_satuan, stok_awal]
       properties:
         nama_produk:
           type: string
@@ -156,66 +263,187 @@ components:
         jenis_produk:
           type: string
           enum: [tahu, tempe]
-          example: tahu
         harga_satuan:
           type: integer
-          example: 5000
+          minimum: 0
+          example: 4000
         stok_awal:
           type: integer
+          minimum: 0
           example: 100
-    StokInput:
+
+    ProduksiInput:
+      type: object
+      required: [jumlah_produksi]
+      properties:
+        jumlah_produksi:
+          type: integer
+          minimum: 1
+          example: 50
+        catatan:
+          type: string
+          example: Produksi kloter pagi
+
+    Pedagang:
+      type: object
+      required: [kode_pedagang, nama_pedagang, no_telepon, aktif]
+      properties:
+        kode_pedagang:
+          type: string
+          example: PDG-001
+        nama_pedagang:
+          type: string
+          example: Pak Budi
+        no_telepon:
+          type: string
+          example: "081234567890"
+        wilayah_jualan:
+          type: [string, "null"]
+          example: Pasar Baru
+        aktif:
+          type: boolean
+          example: true
+
+    PedagangInput:
+      type: object
+      required: [nama_pedagang, no_telepon]
+      properties:
+        nama_pedagang:
+          type: string
+          example: Pak Budi
+        no_telepon:
+          type: string
+          example: "081234567890"
+        wilayah_jualan:
+          type: string
+          example: Pasar Baru
+
+    AmbilKonsinyasiInput:
+      type: object
+      required: [kode_pedagang, items]
+      properties:
+        kode_pedagang:
+          type: string
+          example: PDG-001
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [kode_produk, jumlah_dibawa]
+            properties:
+              kode_produk:
+                type: string
+                example: TAHU-001
+              jumlah_dibawa:
+                type: integer
+                minimum: 1
+                example: 30
+
+    SetoranKonsinyasiInput:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [kode_produk, jumlah_terjual, jumlah_retur_layak, jumlah_rusak]
+            properties:
+              kode_produk:
+                type: string
+                example: TAHU-001
+              jumlah_terjual:
+                type: integer
+                minimum: 0
+                example: 22
+              jumlah_retur_layak:
+                type: integer
+                minimum: 0
+                example: 5
+              jumlah_rusak:
+                type: integer
+                minimum: 0
+                example: 3
+
+    ManifestKonsinyasi:
       type: object
       required:
-        - jenis_penyesuaian
-        - jumlah
+        - kode_manifest
+        - pedagang
+        - tanggal_konsinyasi
+        - status
+        - waktu_ambil
+        - total_tagihan_setoran
+        - total_kerugian_waste
+        - items
       properties:
-        jenis_penyesuaian:
+        kode_manifest:
           type: string
-          enum: [penjualan, restok, koreksi]
-          example: penjualan
-        jumlah:
+          example: KSY-20261115-001
+        pedagang:
+          type: object
+          properties:
+            kode_pedagang:
+              type: string
+              example: PDG-001
+            nama_pedagang:
+              type: string
+              example: Pak Budi
+        tanggal_konsinyasi:
+          type: string
+          format: date
+          example: "2026-11-15"
+        status:
+          type: string
+          enum: [BERJALAN, SELESAI]
+        waktu_ambil:
+          type: string
+          format: date-time
+        waktu_setor:
+          type: [string, "null"]
+          format: date-time
+        total_tagihan_setoran:
           type: integer
-          example: 5
+          example: 178000
+        total_kerugian_waste:
+          type: integer
+          example: 12000
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kode_produk:
+                type: string
+              nama_produk:
+                type: string
+              harga_satuan_snapshot:
+                type: integer
+              jumlah_dibawa:
+                type: integer
+              jumlah_terjual:
+                type: integer
+              jumlah_retur_layak:
+                type: integer
+              jumlah_rusak:
+                type: integer
+
     Problem:
       type: object
-      required:
-        - type
-        - title
-        - status
+      required: [type, title, status]
       properties:
         type:
           type: string
-          example: https://localhost:8000/api/v1/problems/not-found
+          format: uri
+          example: https://localhost:8000/api/v1/problems/409
         title:
           type: string
-          example: Produk tidak ditemukan
+          example: Stok gudang tidak mencukupi
         status:
           type: integer
-          example: 404
+          example: 409
         detail:
           type: string
-          example: Produk dengan kode TAHU-999 tidak ditemukan.
-  responses:
-    NotFound:
-      description: Produk tidak ditemukan
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    Conflict:
-      description: Stok tidak cukup untuk penjualan
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    Unprocessable:
-      description: Validasi permintaan gagal
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-tags:
-  - name: Produk
-    description: Operasi manajemen produk tahu dan tempe
-  - name: Stok
-    description: Operasi penyesuaian stok
+          example: Stok Tahu Putih di gudang tersisa 10, diminta 30.
