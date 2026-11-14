@@ -9,10 +9,12 @@ use App\Http\Requests\SetoranKonsinyasiRequest;
 use App\Http\Resources\KonsinyasiResource;
 use App\Models\DetailKonsinyasi;
 use App\Models\Konsinyasi;
+use App\Models\Outbox;
 use App\Models\Pedagang;
 use App\Models\Produk;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class KonsinyasiController extends Controller
@@ -29,7 +31,7 @@ class KonsinyasiController extends Controller
     }
 
     /**
-     * Pengambilan Pagi (BR-01, BR-03, BR-04)
+     * Pengambilan Pagi (BR-01, BR-03, BR-04) + Catat Event Outbox
      */
     public function store(AmbilKonsinyasiRequest $request)
     {
@@ -74,6 +76,9 @@ class KonsinyasiController extends Controller
                     'waktu_ambil' => now(),
                 ]);
 
+                $estimasiNilaiBawa = 0;
+                $eventItems = [];
+
                 foreach ($valid['items'] as $item) {
                     $produk = Produk::where('kode_produk', $item['kode_produk'])
                         ->lockForUpdate()
@@ -100,7 +105,32 @@ class KonsinyasiController extends Controller
                         'harga_satuan_snapshot' => $produk->harga_satuan,
                         'jumlah_dibawa' => $item['jumlah_dibawa'],
                     ]);
+
+                    $estimasiNilaiBawa += $produk->harga_satuan * $item['jumlah_dibawa'];
+                    $eventItems[] = [
+                        'kode_produk' => $produk->kode_produk,
+                        'nama_produk' => $produk->nama_produk,
+                        'harga_satuan_snapshot' => $produk->harga_satuan,
+                        'jumlah_dibawa' => $item['jumlah_dibawa'],
+                    ];
                 }
+
+                // Simpan event KonsinyasiDiambil ke tabel Outbox dalam transaksi yang sama
+                Outbox::create([
+                    'message_id' => (string) Str::uuid(),
+                    'jenis' => 'KonsinyasiDiambil',
+                    'routing_key' => 'konsinyasi.diambil',
+                    'payload' => [
+                        'kode_manifest' => $konsinyasi->kode_manifest,
+                        'tanggal_konsinyasi' => $tanggal,
+                        'pedagang' => [
+                            'kode_pedagang' => $pedagang->kode_pedagang,
+                            'nama_pedagang' => $pedagang->nama_pedagang,
+                        ],
+                        'estimasi_nilai_bawa' => $estimasiNilaiBawa,
+                        'items' => $eventItems,
+                    ],
+                ]);
 
                 return $konsinyasi->load(['pedagang', 'details.produk']);
             });
@@ -120,11 +150,11 @@ class KonsinyasiController extends Controller
     }
 
     /**
-     * Setoran & Rekonsiliasi Sore (BR-02, BR-05, BR-06)
+     * Setoran & Rekonsiliasi Sore (BR-02, BR-05, BR-06) + Catat Event Outbox
      */
     public function setoran(SetoranKonsinyasiRequest $request, string $kode_manifest)
     {
-        $konsinyasi = Konsinyasi::with('details.produk')->find($kode_manifest);
+        $konsinyasi = Konsinyasi::with(['pedagang', 'details.produk'])->find($kode_manifest);
 
         if (!$konsinyasi) {
             return ApiProblem::respond(
@@ -147,7 +177,6 @@ class KonsinyasiController extends Controller
         $inputItems = collect($valid['items'])->keyBy('kode_produk');
         $detailDb = $konsinyasi->details->keyBy('kode_produk');
 
-        // Validasi kelengkapan & kecocokan daftar produk
         if ($inputItems->count() !== $detailDb->count() || $inputItems->keys()->diff($detailDb->keys())->isNotEmpty()) {
             return ApiProblem::respond(
                 422,
@@ -157,7 +186,7 @@ class KonsinyasiController extends Controller
             );
         }
 
-        // BR-02: Zero-Discrepancy (terjual + retur_layak + rusak == dibawa)
+        // BR-02: Zero-Discrepancy
         foreach ($detailDb as $kodeProduk => $detail) {
             $row = $inputItems[$kodeProduk];
             $totalHitung = $row['jumlah_terjual'] + $row['jumlah_retur_layak'] + $row['jumlah_rusak'];
@@ -183,6 +212,7 @@ class KonsinyasiController extends Controller
         $updated = DB::transaction(function () use ($konsinyasi, $detailDb, $inputItems) {
             $totalTagihan = 0;
             $totalWaste = 0;
+            $eventItems = [];
 
             foreach ($detailDb as $kodeProduk => $detail) {
                 $row = $inputItems[$kodeProduk];
@@ -193,16 +223,29 @@ class KonsinyasiController extends Controller
                     'jumlah_rusak' => $row['jumlah_rusak'],
                 ]);
 
-                // Kembalikan retur layak jual ke stok_gudang
                 if ($row['jumlah_retur_layak'] > 0) {
                     $produk = Produk::where('kode_produk', $kodeProduk)->lockForUpdate()->first();
                     $produk->stok_gudang += $row['jumlah_retur_layak'];
                     $produk->save();
                 }
 
-                // BR-04 & BR-06: Hitung keuangan pakai harga snapshot
-                $totalTagihan += $row['jumlah_terjual'] * $detail->harga_satuan_snapshot;
-                $totalWaste += $row['jumlah_rusak'] * $detail->harga_satuan_snapshot;
+                $subtotalSetoran = $row['jumlah_terjual'] * $detail->harga_satuan_snapshot;
+                $subtotalKerugian = $row['jumlah_rusak'] * $detail->harga_satuan_snapshot;
+
+                $totalTagihan += $subtotalSetoran;
+                $totalWaste += $subtotalKerugian;
+
+                $eventItems[] = [
+                    'kode_produk' => $kodeProduk,
+                    'nama_produk' => $detail->produk->nama_produk ?? '-',
+                    'harga_satuan_snapshot' => $detail->harga_satuan_snapshot,
+                    'jumlah_dibawa' => $detail->jumlah_dibawa,
+                    'jumlah_terjual' => $row['jumlah_terjual'],
+                    'subtotal_setoran' => $subtotalSetoran,
+                    'jumlah_retur_layak' => $row['jumlah_retur_layak'],
+                    'jumlah_rusak' => $row['jumlah_rusak'],
+                    'subtotal_kerugian' => $subtotalKerugian,
+                ];
             }
 
             $konsinyasi->update([
@@ -210,6 +253,27 @@ class KonsinyasiController extends Controller
                 'total_tagihan_setoran' => $totalTagihan,
                 'total_kerugian_waste' => $totalWaste,
                 'waktu_setor' => now(),
+            ]);
+
+            // Simpan event KonsinyasiDisetor ke tabel Outbox dalam transaksi yang sama
+            Outbox::create([
+                'message_id' => (string) Str::uuid(),
+                'jenis' => 'KonsinyasiDisetor',
+                'routing_key' => 'konsinyasi.disetor',
+                'payload' => [
+                    'kode_manifest' => $konsinyasi->kode_manifest,
+                    'tanggal_konsinyasi' => $konsinyasi->tanggal_konsinyasi->format('Y-m-d'),
+                    'pedagang' => [
+                        'kode_pedagang' => $konsinyasi->pedagang->kode_pedagang,
+                        'nama_pedagang' => $konsinyasi->pedagang->nama_pedagang,
+                    ],
+                    'ringkasan_keuangan' => [
+                        'total_tagihan_setoran' => $totalTagihan,
+                        'total_kerugian_waste' => $totalWaste,
+                        'mata_uang' => 'IDR',
+                    ],
+                    'items' => $eventItems,
+                ],
             ]);
 
             return $konsinyasi->fresh(['pedagang', 'details.produk']);
