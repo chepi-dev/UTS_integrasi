@@ -2,6 +2,7 @@
 
 namespace App\Messaging;
 
+use App\Jobs\ProcessKonsinyasiEvent;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Message\AMQPMessage;
 
@@ -21,17 +22,25 @@ class RabbitPublisher
 
         $channel = $connection->channel();
 
+        // Pastikan exchange topic 'toko.events' dan queue tujuan tersedia
+        $channel->exchange_declare('toko.events', 'topic', false, true, false);
+        $channel->queue_declare('stok-penerima-queue', false, true, false, false);
+        $channel->queue_bind('stok-penerima-queue', 'toko.events', 'konsinyasi.*');
+
+        $job = new ProcessKonsinyasiEvent($payloadArray, $messageId, $routingKey);
+
         $body = json_encode([
-            'displayName' => 'App\\Jobs\\ProcessStokDisesuaikanEvent',
+            'uuid' => $messageId,
+            'displayName' => ProcessKonsinyasiEvent::class,
             'job' => 'Illuminate\\Queue\\CallQueuedHandler@call',
-            'maxTries' => null,
+            'maxTries' => 3,
             'delay' => null,
             'timeout' => null,
             'timeoutAt' => null,
             'data' => [
-                'commandName' => 'App\\Jobs\\ProcessStokDisesuaikanEvent',
-                'command' => serialize(new \App\Jobs\ProcessStokDisesuaikanEvent($payloadArray, $messageId))
-            ]
+                'commandName' => ProcessKonsinyasiEvent::class,
+                'command' => serialize($job),
+            ],
         ]);
 
         $msg = new AMQPMessage($body, [
@@ -40,7 +49,7 @@ class RabbitPublisher
             'message_id' => $messageId,
         ]);
 
-        $channel->basic_publish($msg, '', 'stok-penerima-queue');
+        $channel->basic_publish($msg, 'toko.events', $routingKey);
 
         $channel->close();
         $connection->close();
