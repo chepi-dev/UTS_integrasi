@@ -27,7 +27,29 @@ class KonsinyasiController extends Controller
             $query->where('status', strtoupper($request->query('status')));
         }
 
+        if ($request->filled('tanggal')) {
+            $query->whereDate('tanggal_konsinyasi', $request->query('tanggal'));
+        }
+
         return response()->json(KonsinyasiResource::collection($query->get()));
+    }
+
+    /**
+     * Detail satu manifest beserta rincian produk (untuk halaman detail Buku Transaksi)
+     */
+    public function show(string $kode_manifest)
+    {
+        $konsinyasi = Konsinyasi::with(['pedagang', 'details.produk'])->find($kode_manifest);
+
+        if (!$konsinyasi) {
+            return ApiProblem::respond(
+                404,
+                'Manifest tidak ditemukan',
+                sprintf('Manifest dengan kode %s tidak tersedia.', $kode_manifest)
+            );
+        }
+
+        return response()->json(new KonsinyasiResource($konsinyasi));
     }
 
     /**

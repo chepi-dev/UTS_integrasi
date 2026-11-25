@@ -4,12 +4,31 @@ namespace Database\Seeders;
 
 use App\Models\Pedagang;
 use App\Models\Produk;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        User::updateOrCreate(
+            ['email' => 'pemilik@tempe.test'],
+            [
+                'name' => 'Pemilik Pabrik Tahu Tempe',
+                'password' => 'password123',
+                'role' => 'pemilik',
+            ]
+        );
+
+        User::updateOrCreate(
+            ['email' => 'gudang@tempe.test'],
+            [
+                'name' => 'Petugas Gudang Pagi-Sore',
+                'password' => 'password123',
+                'role' => 'petugas_gudang',
+            ]
+        );
+
         Produk::updateOrCreate(
             ['kode_produk' => 'TAHU-001'],
             [
